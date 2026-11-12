@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCFF – Patrouille</title>
+<style>
+  :root { --fond:#f3f1ec; --encre:#1f2a24; --vert:#2f4a3a; --alerte:#c2410c; --trait:#d6d2c8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--encre); background: var(--fond); display: flex; flex-direction: column; }
+  header { background: var(--vert); color: #fff; padding: 16px 20px; font-size: 20px; font-weight: 600; }
+  main { flex: 1; padding: 24px 20px; max-width: 480px; width: 100%; margin: 0 auto; }
+  label { display: block; font-weight: 600; margin: 16px 0 6px; }
+  input { width: 100%; font: inherit; font-size: 18px; padding: 14px; border: 1px solid var(--trait); border-radius: 8px; background: #fff; }
+  button { width: 100%; font: inherit; font-size: 20px; font-weight: 600; padding: 18px; margin-top: 24px; border: 0; border-radius: 10px; cursor: pointer; color: #fff; }
+  #demarrer { background: var(--vert); }
+  #terminer { background: var(--alerte); }
+  button:disabled { opacity: .5; }
+  .etat { margin-top: 20px; padding: 14px; border-radius: 8px; background: #e8e5dc; line-height: 1.45; }
+  .etat.mauvais { background: #fde4d6; color: #7a2a05; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>Patrouille CCFF</header>
+<main>
+  <section id="ecranDepart" hidden>
+    <label for="prenom">Prénom</label>
+    <input id="prenom" autocomplete="given-name" maxlength="30">
+    <label for="nom">Nom</label>
+    <input id="nom" autocomplete="family-name" maxlength="30">
+    <button id="demarrer">Démarrer la patrouille</button>
+  </section>
+
+  <section id="ecranEnCours" hidden>
+    <h2 id="bonjour"></h2>
+    <div class="etat" id="statut">Recherche de votre position…</div>
+    <div class="etat">Gardez cette page ouverte et l’écran allumé pendant la patrouille.</div>
+    <button id="terminer">Terminer la patrouille</button>
+  </section>
+
+  <div class="etat mauvais" id="message" hidden></div>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyB_BZ5cOJMfnVU1aIBZB86iYJJoo2y-ois",
+  authDomain: "ccff-maps.firebaseapp.com",
+  databaseURL: "https://ccff-maps-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "ccff-maps",
+  appId: "1:371812912696:web:268fd79dddc5d52bc1a0cd"
+};
+
+const INTERVALLE_MS = 15000;   // une position envoyée toutes les 15 secondes au plus
+
+const $ = id => document.getElementById(id);
+const depart = $("ecranDepart"), enCours = $("ecranEnCours"), msg = $("message"), statut = $("statut");
+
+// Le code d'accès arrive dans le lien (après le #) : il n'est donc jamais dans le fichier public.
+if (location.hash.length > 1) {
+  localStorage.setItem("ccff_code", decodeURIComponent(location.hash.slice(1)));
+  history.replaceState(null, "", location.pathname);
+}
+const code = localStorage.getItem("ccff_code");
+
+let ref = null, suivi = null, verrou = null, dernierEnvoi = 0, nomComplet = "", positionRecue = null;
+
+function erreur(texte) { msg.textContent = texte; msg.hidden = !texte; }
+
+async function garderEcranAllume() {
+  try { if ("wakeLock" in navigator) verrou = await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (suivi !== null && document.visibilityState === "visible") { garderEcranAllume(); envoyer(true); }
+});
+
+function envoyer(force) {
+  if (!ref || !positionRecue) return;
+  const maintenant = Date.now();
+  if (!force && maintenant - dernierEnvoi < INTERVALLE_MS) return;
+  dernierEnvoi = maintenant;
+  ref.set({ nom: nomComplet, lat: positionRecue.latitude, lng: positionRecue.longitude, t: maintenant })
+    .then(() => { erreur(""); statut.textContent = "Position envoyée à " + new Date().toLocaleTimeString("fr-FR"); })
+    .catch(() => erreur("Envoi impossible. Vérifiez le réseau ou le lien d’accès."));
+}
+
+async function demarrer() {
+  const prenom = $("prenom").value.trim(), nom = $("nom").value.trim();
+  if (!prenom || !nom) { erreur("Indiquez votre prénom et votre nom."); return; }
+  if (!navigator.geolocation) { erreur("La localisation n’est pas disponible sur cet appareil."); return; }
+  erreur("");
+  nomComplet = prenom + " " + nom;
+
+  const uid = firebase.auth().currentUser.uid;
+  ref = firebase.database().ref("patrouilles/" + code + "/" + uid);
+  ref.onDisconnect().remove();             // si la connexion tombe, la position disparaît
+
+  suivi = navigator.geolocation.watchPosition(
+    p => { positionRecue = p.coords; envoyer(false); },
+    e => erreur(e.code === 1 ? "Autorisez la localisation pour ce site dans les réglages du téléphone." : "Position introuvable pour le moment."),
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+  );
+  await garderEcranAllume();
+  $("bonjour").textContent = "Patrouille en cours : " + nomComplet;
+  depart.hidden = true; enCours.hidden = false;
+}
+
+async function terminer() {
+  if (suivi !== null) navigator.geolocation.clearWatch(suivi);
+  suivi = null; positionRecue = null;
+  if (verrou) { try { await verrou.release(); } catch (e) {} verrou = null; }
+  if (ref) { try { await ref.onDisconnect().cancel(); await ref.remove(); } catch (e) {} ref = null; }
+  enCours.hidden = true; depart.hidden = false;
+  $("prenom").value = ""; $("nom").value = "";
+  erreur("");
+}
+
+$("demarrer").addEventListener("click", demarrer);
+$("terminer").addEventListener("click", terminer);
+
+if (!code) {
+  erreur("Lien d’accès manquant. Ouvrez le lien complet envoyé par le CCFF.");
+} else {
+  firebase.initializeApp(firebaseConfig);
+  firebase.auth().signInAnonymously()
+    .then(() => { depart.hidden = false; })
+    .catch(() => erreur("Connexion impossible. Vérifiez le réseau."));
+}
+</script>
+</body>
+</html>
