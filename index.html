@@ -9,14 +9,15 @@
   * { box-sizing: border-box; }
   body { margin: 0; min-height: 100vh; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--encre); background: var(--fond); display: flex; flex-direction: column; }
   header { background: var(--vert); color: #fff; padding: 16px 20px; font-size: 20px; font-weight: 600; }
-  main { flex: 1; padding: 24px 20px; max-width: 480px; width: 100%; margin: 0 auto; }
-  label { display: block; font-weight: 600; margin: 16px 0 6px; }
+  main { flex: 1; padding: 20px; max-width: 480px; width: 100%; margin: 0 auto; }
+  label { display: block; font-weight: 600; margin: 14px 0 6px; }
+  small { font-weight: 400; color: #5b665f; }
   input { width: 100%; font: inherit; font-size: 18px; padding: 14px; border: 1px solid var(--trait); border-radius: 8px; background: #fff; }
-  button { width: 100%; font: inherit; font-size: 20px; font-weight: 600; padding: 18px; margin-top: 24px; border: 0; border-radius: 10px; cursor: pointer; color: #fff; }
+  button { width: 100%; font: inherit; font-size: 20px; font-weight: 600; padding: 18px; margin-top: 22px; border: 0; border-radius: 10px; cursor: pointer; color: #fff; }
   #demarrer { background: var(--vert); }
   #terminer { background: var(--alerte); }
   button:disabled { opacity: .5; }
-  .etat { margin-top: 20px; padding: 14px; border-radius: 8px; background: #e8e5dc; line-height: 1.45; }
+  .etat { margin-top: 18px; padding: 14px; border-radius: 8px; background: #e8e5dc; line-height: 1.45; }
   .etat.mauvais { background: #fde4d6; color: #7a2a05; }
   [hidden] { display: none !important; }
 </style>
@@ -24,12 +25,14 @@
 <body>
 <header>Patrouille CCFF</header>
 <main>
-  <section id="ecranDepart" hidden>
-    <label for="prenom">Prénom</label>
-    <input id="prenom" autocomplete="given-name" maxlength="30">
-    <label for="nom">Nom</label>
-    <input id="nom" autocomplete="family-name" maxlength="30">
-    <button id="demarrer">Démarrer la patrouille</button>
+  <section id="ecranDepart">
+    <label for="p1">Patrouilleur 1 <small>(nom et prénom)</small></label>
+    <input id="p1" autocomplete="off" autocapitalize="words" maxlength="40">
+    <label for="p2">Patrouilleur 2 <small>(nom et prénom)</small></label>
+    <input id="p2" autocomplete="off" autocapitalize="words" maxlength="40">
+    <label for="mdp">Mot de passe</label>
+    <input id="mdp" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40">
+    <button id="demarrer" disabled>Démarrer la patrouille</button>
   </section>
 
   <section id="ecranEnCours" hidden>
@@ -59,14 +62,9 @@ const INTERVALLE_MS = 15000;   // une position envoyée toutes les 15 secondes a
 const $ = id => document.getElementById(id);
 const depart = $("ecranDepart"), enCours = $("ecranEnCours"), msg = $("message"), statut = $("statut");
 
-// Le code d'accès arrive dans le lien (après le #) : il n'est donc jamais dans le fichier public.
-if (location.hash.length > 1) {
-  localStorage.setItem("ccff_code", decodeURIComponent(location.hash.slice(1)));
-  history.replaceState(null, "", location.pathname);
-}
-const code = localStorage.getItem("ccff_code");
-
 let ref = null, suivi = null, verrou = null, dernierEnvoi = 0, nomComplet = "", positionRecue = null;
+
+$("mdp").value = localStorage.getItem("ccff_mdp") || "";   // le mot de passe est prérempli sur ce téléphone
 
 function erreur(texte) { msg.textContent = texte; msg.hidden = !texte; }
 
@@ -84,18 +82,22 @@ function envoyer(force) {
   dernierEnvoi = maintenant;
   ref.set({ nom: nomComplet, lat: positionRecue.latitude, lng: positionRecue.longitude, t: maintenant })
     .then(() => { erreur(""); statut.textContent = "Position envoyée à " + new Date().toLocaleTimeString("fr-FR"); })
-    .catch(() => erreur("Envoi impossible. Vérifiez le réseau ou le lien d’accès."));
+    .catch(e => erreur("Envoi impossible (" + (e && e.code ? e.code : "inconnu") + "). Vérifiez le mot de passe et le réseau."));
 }
 
 async function demarrer() {
-  const prenom = $("prenom").value.trim(), nom = $("nom").value.trim();
-  if (!prenom || !nom) { erreur("Indiquez votre prénom et votre nom."); return; }
+  const p1 = $("p1").value.trim(), p2 = $("p2").value.trim();
+  const mdp = $("mdp").value.trim().toLowerCase();
+  if (!p1) { erreur("Indiquez le patrouilleur 1."); return; }
+  if (!mdp) { erreur("Indiquez le mot de passe."); return; }
+  if (!/^[a-z0-9_-]+$/.test(mdp)) { erreur("Mot de passe : lettres et chiffres uniquement."); return; }
   if (!navigator.geolocation) { erreur("La localisation n’est pas disponible sur cet appareil."); return; }
   erreur("");
-  nomComplet = prenom + " " + nom;
+  nomComplet = p2 ? p1 + " & " + p2 : p1;
+  localStorage.setItem("ccff_mdp", mdp);
 
   const uid = firebase.auth().currentUser.uid;
-  ref = firebase.database().ref("patrouilles/" + code + "/" + uid);
+  ref = firebase.database().ref("patrouilles/" + mdp + "/" + uid);
   ref.onDisconnect().remove();             // si la connexion tombe, la position disparaît
 
   suivi = navigator.geolocation.watchPosition(
@@ -114,21 +116,17 @@ async function terminer() {
   if (verrou) { try { await verrou.release(); } catch (e) {} verrou = null; }
   if (ref) { try { await ref.onDisconnect().cancel(); await ref.remove(); } catch (e) {} ref = null; }
   enCours.hidden = true; depart.hidden = false;
-  $("prenom").value = ""; $("nom").value = "";
+  $("p1").value = ""; $("p2").value = "";
   erreur("");
 }
 
 $("demarrer").addEventListener("click", demarrer);
 $("terminer").addEventListener("click", terminer);
 
-if (!code) {
-  erreur("Lien d’accès manquant. Ouvrez le lien complet envoyé par le CCFF.");
-} else {
-  firebase.initializeApp(firebaseConfig);
-  firebase.auth().signInAnonymously()
-    .then(() => { depart.hidden = false; })
-    .catch(() => erreur("Connexion impossible. Vérifiez le réseau."));
-}
+firebase.initializeApp(firebaseConfig);
+firebase.auth().signInAnonymously()
+  .then(() => { $("demarrer").disabled = false; })
+  .catch(() => erreur("Connexion impossible. Vérifiez le réseau."));
 </script>
 </body>
 </html>
