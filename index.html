@@ -27,9 +27,9 @@
 <header>Patrouille CCFF</header>
 <main>
   <section id="ecranDepart">
-    <label for="p1">Patrouilleur 1 <small>(nom et prénom)</small></label>
+    <label for="p1">Patrouilleur 1 – Conducteur <small>(nom et prénom)</small></label>
     <input id="p1" autocomplete="off" autocapitalize="words" maxlength="40">
-    <label for="p2">Patrouilleur 2 <small>(nom et prénom)</small></label>
+    <label for="p2">Patrouilleur 2 – Porteur de lance <small>(nom et prénom)</small></label>
     <input id="p2" autocomplete="off" autocapitalize="words" maxlength="40">
     <label for="mdp">Mot de passe</label>
     <input id="mdp" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40">
@@ -89,7 +89,7 @@ function envoyer(force) {
 async function demarrer() {
   const p1 = $("p1").value.trim(), p2 = $("p2").value.trim();
   const mdp = $("mdp").value.trim().toLowerCase();
-  if (!p1) { erreur("Indiquez le patrouilleur 1."); return; }
+  if (!p1) { erreur("Indiquez le patrouilleur 1 (conducteur)."); return; }
   if (!mdp) { erreur("Indiquez le mot de passe."); return; }
   if (!/^[a-z0-9_-]+$/.test(mdp)) { erreur("Mot de passe : lettres et chiffres uniquement."); return; }
   if (!navigator.geolocation) { erreur("La localisation n’est pas disponible sur cet appareil."); return; }
